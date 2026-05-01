@@ -6,8 +6,9 @@
     ->Hay un problema con el forwarding de puertos para que otras computadoras
       accedan al recurso de MinIO, en caso de que el servicio principal (el que usa local host)
       se caiga. En w11 se puede usar "Mirror" del WSL
-    ->
+    ->30/04/2026: Se empezó a agregar las cosas del Ulises
  */
+using ExtractorPdf.Servicios;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Minio;
@@ -34,8 +35,22 @@ namespace PDD_Archivos.Controllers
         [HttpPost("upload")]
         public async Task<IActionResult> UploadFile(IFormFile file, [FromQuery] string folderId = "root")
         {
-            var userId = "1";//este lo debe sacar de la solicitud
+            //primero comprobar si el texto es académico
+            var validador = new ValidadorAcademico();
+            var resultadoValidacion = validador.Validar(file.OpenReadStream());
+            if (!resultadoValidacion.EsValido)
+            {
+                return BadRequest(new {
+                    nombre = file.Name,
+                    Error = resultadoValidacion.Razon
+                });
+            }
+            //Ahora se hace la extracción
             var fileId = Guid.NewGuid().ToString();
+            var servicioExtraccion = new ServicioExtraccionPdf();
+            var evento = servicioExtraccion.Extraer(rutaPdf, fileId);
+            var userId = "1";//este lo debe sacar de la solicitud
+           
             //la srting se puede hacer mas grande dependiendo de cuantos folders existan
             var key = $"usuarios/{userId}/{folderId}/{fileId}";
 
