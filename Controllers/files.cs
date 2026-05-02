@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Minio;
 using Minio.DataModel.Args;
+using MongoDB.Driver;
+using PDD_Archivos.Models;
 
 namespace PDD_Archivos.Controllers
 {
@@ -21,13 +23,18 @@ namespace PDD_Archivos.Controllers
     public class files : ControllerBase
     {
         private readonly IMinioClient _minioClient;
+        private readonly MongoContext _context;
         private readonly string _bucketName = "pdfs";
 
         //el constructor
-        public files (IMinioClient minioClient)
+        public files (IMinioClient minioClient, MongoContext context)
         {
             this._minioClient = minioClient;
+            _context = context;
         }
+        //ver que onda con los dos constructores
+
+       
 
         //ahora si las peticiones del moy
 
@@ -45,11 +52,24 @@ namespace PDD_Archivos.Controllers
                     Error = resultadoValidacion.Razon
                 });
             }
-            //Ahora se hace la extracción
+            //Ahora se realiza la extracción
             var fileId = Guid.NewGuid().ToString();
             var servicioExtraccion = new ServicioExtraccionPdf();
-            var evento = servicioExtraccion.Extraer(rutaPdf, fileId);
-            var userId = "1";//este lo debe sacar de la solicitud
+            var evento = servicioExtraccion.Extraer(file.OpenReadStream(), fileId,file.Name);
+
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine(" Extraccion completada");
+            Console.ResetColor();
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"  Estado          : {evento.EstadoExtraccion}");
+            Console.WriteLine($"  Idioma          : {evento.Idioma}");
+            Console.WriteLine($"  Palabras clave  : {evento.PalabrasClave.Count} encontradas");
+            Console.WriteLine($"  Resumen         : {(string.IsNullOrEmpty(evento.Resumen) ? "no extraído" : evento.Resumen.Length + " caracteres")}");
+            Console.ResetColor();
+
+            //se encola y se genera el registro en la BD
+            var userId = "1";//este lo debe sacar de la solicitud (puede ir hasta arriba)
            
             //la srting se puede hacer mas grande dependiendo de cuantos folders existan
             var key = $"usuarios/{userId}/{folderId}/{fileId}";
@@ -70,7 +90,24 @@ namespace PDD_Archivos.Controllers
                 });
 
             await _minioClient.PutObjectAsync(putObjectArgs);
+            //prueba para meter a la base de datos
+            var nuevoArchivo = new MetadataArchivo
+            {
+                NombreOriginal = file.FileName,
+                TamanoBytes = 1024500,
+                FechaSubida = DateTime.UtcNow,
+                UbicacionStorage = "/uploads/2024/reporte.pdf"
+            };
 
+            try
+            {
+                await _context.Archivos.InsertOneAsync(nuevoArchivo);
+            }
+            catch (MongoWriteException ex)
+            {
+                Console.WriteLine($"Error al escribir en Mongo: {ex.Message}");
+            }
+            
             return Ok(new
             {
                 FileId = fileId,
@@ -136,6 +173,14 @@ namespace PDD_Archivos.Controllers
                 FolderName = folderName,
                 S3Key = key
             });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Listar()
+        {
+            // Usamos la colección directamente
+            var lista = await _context.Archivos.Find(_ => true).ToListAsync();
+            return Ok(lista);
         }
     }
 }

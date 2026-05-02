@@ -1,8 +1,10 @@
 using Minio;
+using PDD_Archivos.Controllers;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+builder.Services.AddSingleton<MongoContext>(); //para que siempre este disponible
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

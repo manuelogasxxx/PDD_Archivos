@@ -8,61 +8,80 @@ namespace ExtractorPdf.Servicios;
 
 public class ServicioExtraccionPdf
 {
-
     //inicio del resumen/abstract
     private static readonly Regex PatronInicioResumen = new(
         @"\b(abstract|resumen|résumé|zusammenfassung)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    //fin del resumen dado lo que sigue despues
+    //fin del resumen cuando se encuntre la siguente seccion
     private static readonly Regex PatronFinResumen = new(
         @"\b(introduction|introducción|introduccion|keywords|palabras\s+clave|" +
         @"1\.\s*introduction|i\.\s*introduction|background|motivation)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    //palabras clave en el PDF
+    //palabras clave en el pdf
     private static readonly Regex PatronLineaPalabrasClave = new(
         @"(?:keywords?|palabras\s+clave|index\s+terms?)\s*[:\-—]?\s*(.+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    // Separadores entre palabras clave individuales
+    //separadores entre palabras
     private static readonly Regex SeparadorPalabrasClave = new(
         @"[;,·•]\s*", RegexOptions.Compiled);
-
-    // lineas sin contenido semantico como fechas urls, fechas, numeros sueltos, simbolos de copyright
+    //ignorar lines sin contenido importante
     private static readonly Regex PatronRuido = new(
         @"^\s*(\d{1,4}|https?://\S+|doi:\S+|©.+|received:.+|accepted:.+)\s*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    
-    // Recibe la ruta del PDF y el identificador único del archivo y devuelve un evento
+
+    // Recibe el stream directamente desde la petición HTTP.
+    public EventoArchivoEncolado Extraer(Stream streamPdf, string idArchivo, string nombreArchivo)
+    {
+        if (streamPdf is null || streamPdf.Length == 0)
+            return new EventoArchivoEncolado
+            {
+                IdArchivo = idArchivo,
+                NombreArchivoOriginal = nombreArchivo,
+                EstadoExtraccion = EstadoExtraccion.NoClasificable
+            };
+
+        // Resetear el stream al inicio por si el validador lo leyó antes
+        streamPdf.Position = 0;
+
+        using var documento = PdfDocument.Open(streamPdf,
+            new ParsingOptions { UseLenientParsing = true });
+
+        return ExtraerDesdeDocumento(documento, idArchivo, nombreArchivo);
+    }
+
+    //recibe ruta
     public EventoArchivoEncolado Extraer(string rutaPdf, string idArchivo)
     {
         if (!File.Exists(rutaPdf))
             throw new FileNotFoundException($"PDF no encontrado: {rutaPdf}");
 
-        using var documento = PdfDocument.Open(rutaPdf);
+        using var stream = File.OpenRead(rutaPdf);
+        return Extraer(stream, idArchivo, Path.GetFileName(rutaPdf));
+    }
 
-        // Extraer texto de las primeras 4 páginas
+    //ambos metodos se pueden usar ya sea stream o ruta
+    private static EventoArchivoEncolado ExtraerDesdeDocumento(
+        PdfDocument documento, string idArchivo, string nombreArchivo)
+    {
+        //esxtrae texto de las primeras 4 paginas
         var textosPorPagina = ExtraerTextosPorPagina(documento, maximoPaginas: 4);
-        var textoCompleto   = string.Join("\n", textosPorPagina);
+        var textoCompleto = string.Join("\n", textosPorPagina);
 
         //no encontro texto 
         if (string.IsNullOrWhiteSpace(textoCompleto))
-        {
             return new EventoArchivoEncolado
             {
-                IdArchivo            = idArchivo,
-                NombreArchivoOriginal = Path.GetFileName(rutaPdf),
-                EstadoExtraccion     = EstadoExtraccion.NoClasificable
+                IdArchivo = idArchivo,
+                NombreArchivoOriginal = nombreArchivo,
+                EstadoExtraccion = EstadoExtraccion.NoClasificable
             };
-        }
 
-        var titulo       = ExtraerTitulo(documento, textosPorPagina[0]);
-        var resumen      = ExtraerResumen(textoCompleto);
+        var titulo = ExtraerTitulo(documento, textosPorPagina[0]);
+        var resumen = ExtraerResumen(textoCompleto);
         var palabrasClave = ExtraerPalabrasClave(textoCompleto);
-        var idioma       = DetectarIdioma(resumen ?? textosPorPagina[0]);
+        var idioma = DetectarIdioma(resumen ?? textosPorPagina[0]);
 
-        // Si no se encontró resumen delimitado, usar texto de respaldo
+        //si no encontro el delimitador del resumen toma un pedaso de texto 
         var estado = resumen is not null
             ? EstadoExtraccion.Completo
             : EstadoExtraccion.Parcial;
@@ -76,17 +95,18 @@ public class ServicioExtraccionPdf
 
         return new EventoArchivoEncolado
         {
-            IdArchivo            = idArchivo,
-            NombreArchivoOriginal = Path.GetFileName(rutaPdf),
-            Titulo               = titulo,
-            Resumen              = resumen ?? string.Empty,
-            PalabrasClave        = palabrasClave,
-            Idioma               = idioma,
-            EstadoExtraccion     = estado,
-            TextoRespaldo        = textoRespaldo,
-            FechaSubida          = DateTime.UtcNow
+            IdArchivo = idArchivo,
+            NombreArchivoOriginal = nombreArchivo,
+            Titulo = titulo,
+            Resumen = resumen ?? string.Empty,
+            PalabrasClave = palabrasClave,
+            Idioma = idioma,
+            EstadoExtraccion = estado,
+            TextoRespaldo = textoRespaldo,
+            FechaSubida = DateTime.UtcNow
         };
     }
+
 
     private static List<string> ExtraerTextosPorPagina(PdfDocument documento, int maximoPaginas)
     {
@@ -95,7 +115,7 @@ public class ServicioExtraccionPdf
 
         for (int numeroPagina = 1; numeroPagina <= limite; numeroPagina++)
         {
-            var pagina   = documento.GetPage(numeroPagina);
+            var pagina = documento.GetPage(numeroPagina);
             var palabras = pagina.GetWords().ToList();
 
             if (!palabras.Any())
@@ -103,14 +123,13 @@ public class ServicioExtraccionPdf
                 textosPaginas.Add(string.Empty);
                 continue;
             }
-
-            // Agrupar palabras en líneas por proximidad vertical
+            //agrupa las palabras que tengan la misma altura
             var lineas = AgruparPalabrasEnLineas(palabras, toleranciaVertical: 3.0);
             var constructor = new StringBuilder();
 
             foreach (var linea in lineas)
             {
-                // Ordenar cada línea de izquierda a derecha por posición horizontal
+                //ordena las palabras de isquierda a dercha 
                 var ordenadas = linea.OrderBy(p => p.BoundingBox.Left).ToList();
                 constructor.AppendLine(string.Join(" ", ordenadas.Select(p => p.Text)));
             }
@@ -121,17 +140,15 @@ public class ServicioExtraccionPdf
         return textosPaginas;
     }
 
-    
-    // Agrupa palabras en líneas según su posición vertical 
+    //pone las palabras en linea 
     private static List<List<Word>> AgruparPalabrasEnLineas(
         List<Word> palabras, double toleranciaVertical)
     {
-        var lineas  = new List<List<Word>>();
+        var lineas = new List<List<Word>>();
         var ordenadas = palabras.OrderByDescending(p => p.BoundingBox.Bottom).ToList();
 
         foreach (var palabra in ordenadas)
         {
-            // Buscar una línea existente donde encaje esta palabra
             var lineaExistente = lineas.FirstOrDefault(linea =>
                 Math.Abs(linea[0].BoundingBox.Bottom - palabra.BoundingBox.Bottom)
                 <= toleranciaVertical);
@@ -139,27 +156,23 @@ public class ServicioExtraccionPdf
             if (lineaExistente is not null)
                 lineaExistente.Add(palabra);
             else
-                lineas.Add([palabra]); // nueva línea
+                lineas.Add([palabra]);
         }
 
         return lineas;
     }
 
-
-
-    
-    //título como el bloque de texto con mayor tamaño tipográfico
+    //extra el titulo que es el texto de mayor tamaño 
     private static string ExtraerTitulo(PdfDocument documento, string textoPrimeraPagina)
     {
         try
         {
             var primeraPagina = documento.GetPage(1);
-            var letras        = primeraPagina.Letters.ToList();
+            var letras = primeraPagina.Letters.ToList();
 
             if (!letras.Any())
                 return InferirTituloDesdeTexto(textoPrimeraPagina);
 
-            // Agrupar letras por tamaño de fuente y tomar el grupo más grande
             var grupoPorTamano = letras
                 .Where(l => !string.IsNullOrWhiteSpace(l.Value))
                 .GroupBy(l => Math.Round(l.FontSize, 1))
@@ -171,7 +184,6 @@ public class ServicioExtraccionPdf
 
             var textoTitulo = string.Concat(grupoPorTamano.Select(l => l.Value)).Trim();
 
-            // Si el resultado es muy corto o es solo números, usar heurístico
             if (textoTitulo.Length < 10 || textoTitulo.All(char.IsDigit))
                 return InferirTituloDesdeTexto(textoPrimeraPagina);
 
@@ -182,8 +194,6 @@ public class ServicioExtraccionPdf
             return InferirTituloDesdeTexto(textoPrimeraPagina);
         }
     }
-
-    
     // Método de respaldo toma las primera lineas antes del resumen/abstract
     private static string InferirTituloDesdeTexto(string textoPrimeraPagina)
     {
@@ -199,14 +209,14 @@ public class ServicioExtraccionPdf
         var lineasTitulo = new List<string>();
         foreach (var linea in lineas)
         {
-            // Detener si la línea parece una afiliación institucional
+            // Detener si aparece una afiliación instituciona
             if (Regex.IsMatch(linea,
                 @"(@|\buniversity\b|\bdept\b|\binstitute\b|\buniversidad\b|\bdepartamento\b)",
                 RegexOptions.IgnoreCase))
                 break;
 
             lineasTitulo.Add(linea);
-            if (lineasTitulo.Count == 2) break; // máximo 2 líneas para el título
+            if (lineasTitulo.Count == 2) break;
         }
 
         return LimpiarTitulo(string.Join(" ", lineasTitulo));
@@ -223,35 +233,28 @@ public class ServicioExtraccionPdf
         return titulo.Length > 250 ? titulo[..250] : titulo;
     }
 
-    // Localiza el resumen buscando el marcador de inicio (Abstract/Resumen)
-    
+    // Localiza el resumen buscando el marcador Abstract/Resumen
     private static string? ExtraerResumen(string textoCompleto)
     {
         var coincidenciaInicio = PatronInicioResumen.Match(textoCompleto);
         if (!coincidenciaInicio.Success) return null;
-
         // Avanzar después de la palabra resumon o abstract
         int indiceInicio = coincidenciaInicio.Index + coincidenciaInicio.Length;
         var textoDespues = textoCompleto[indiceInicio..].TrimStart(':', '-', ' ', '\n', '\r');
         int inicioContenido = textoCompleto.Length - textoDespues.Length;
-
         // Buscar el fin del resumen a partir del inicio del siguiente contenido
         var coincidenciaFin = PatronFinResumen.Match(textoCompleto, inicioContenido);
-        int indiceFin       = coincidenciaFin.Success
+        int indiceFin = coincidenciaFin.Success
             ? coincidenciaFin.Index
-            : inicioContenido + 2500; // límite de seguridad
+            : inicioContenido + 2500;
 
         var textoRaw = textoCompleto[inicioContenido..Math.Min(indiceFin, textoCompleto.Length)];
-        var limpio   = LimpiarTexto(textoRaw);
-
+        var limpio = LimpiarTexto(textoRaw);
         // Si quedó muy corto se ignora
         if (limpio.Length < 80) return null;
-
-        // regresa a 2000 caracteres
+        //se retornan los primeros 2000 carcteres
         return limpio.Length > 2000 ? limpio[..2000] : limpio;
     }
-
-    
     // Extrae la línea de palabras clave y la divide en tokens individuales.
     private static List<string> ExtraerPalabrasClave(string textoCompleto)
     {
@@ -264,12 +267,11 @@ public class ServicioExtraccionPdf
             .Select(p => p.Trim().ToLowerInvariant())
             .Where(p => p.Length > 2 && p.Length < 60)
             .Distinct()
-            .Take(15) // máximo de palabras
+            .Take(15)
             .ToList();
 
         return palabrasClave;
     }
-
     // Detecta el idioma comparando la frecuencia de palabras de conexion
     private static string DetectarIdioma(string texto)
     {
@@ -279,7 +281,6 @@ public class ServicioExtraccionPdf
         var palabras = Regex.Split(textoMinusculas, @"\W+")
             .Where(p => p.Length > 2)
             .ToHashSet();
-
         // Contar cuántas palabras de conexión de cada idioma aparecen en el texto
         var puntuaciones = new Dictionary<string, int>
         {
@@ -299,7 +300,6 @@ public class ServicioExtraccionPdf
                 ["que","com","para","uma","dos","das","pelo","como",
                  "este","esta","são","estudo","método","resultado"]),
         };
-
         // El idioma con más coincidencias gana
         return puntuaciones.MaxBy(par => par.Value).Key;
     }
@@ -307,7 +307,6 @@ public class ServicioExtraccionPdf
     private static int ContarCoincidencias(HashSet<string> palabras, string[] stopwords)
         => stopwords.Count(palabras.Contains);
 
-   //eliminar caracteres inesesarrios
     private static string LimpiarTexto(string texto)
     {
         var lineas = texto
@@ -316,7 +315,6 @@ public class ServicioExtraccionPdf
             .Select(l => l.Trim());
 
         var unido = string.Join(" ", lineas);
-
         // Eliminar guiones de separación
         unido = Regex.Replace(unido, @"-\s+", "");
         // ignorar espacios múltiples
