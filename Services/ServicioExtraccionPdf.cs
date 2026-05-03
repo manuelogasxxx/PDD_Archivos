@@ -1,10 +1,10 @@
+using PDD_Archivos.Modelos;
 using System.Text;
 using System.Text.RegularExpressions;
-using ExtractorPdf.Modelos;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 
-namespace ExtractorPdf.Servicios;
+namespace PDD_Archivos.Servicios;
 
 public class ServicioExtraccionPdf
 {

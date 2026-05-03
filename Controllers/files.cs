@@ -11,10 +11,14 @@
 using ExtractorPdf.Servicios;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Win32;
 using Minio;
 using Minio.DataModel.Args;
 using MongoDB.Driver;
+using PDD_Archivos.Configuracion;
 using PDD_Archivos.Models;
+using PDD_Archivos.Servicios;
+using System.Security.Claims;
 
 namespace PDD_Archivos.Controllers
 {
@@ -26,6 +30,12 @@ namespace PDD_Archivos.Controllers
         private readonly MongoContext _context;
         private readonly string _bucketName = "pdfs";
 
+        void Registrar(string mensaje)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine(mensaje);
+            Console.ResetColor();
+        }
         //el constructor
         public files (IMinioClient minioClient, MongoContext context)
         {
@@ -42,6 +52,13 @@ namespace PDD_Archivos.Controllers
         [HttpPost("upload")]
         public async Task<IActionResult> UploadFile(IFormFile file, [FromQuery] string folderId = "root")
         {
+            var configuracion = new ConfiguracionRabbitMq
+            {
+                Servidores = ["localhost"],
+                Usuario = "guest",
+                Contrasena = "guest",
+                UsarColaQuorum = false,
+            };
             //primero comprobar si el texto es académico
             var validador = new ValidadorAcademico();
             var resultadoValidacion = validador.Validar(file.OpenReadStream());
@@ -69,12 +86,33 @@ namespace PDD_Archivos.Controllers
             Console.ResetColor();
 
             //se encola y se genera el registro en la BD
+            using var servicioMensajeria = new ServicioMensajeria(configuracion, Registrar);
+            try
+            {
+                //crear registro en la BD
+                servicioMensajeria.Publicar(evento);
+        
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("mantenimiento"))
+            {
+                // Circuit Breaker abierto: RabbitMQ no disponible
+                //cronometro.Stop();
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine(" Sistema en mantenimiento");
+                Console.WriteLine($"  {ex.Message}");
+                //Console.WriteLine($"  El json fue guardado en: {rutaSalida}");
+                Console.ResetColor();
+            }
             var userId = "1";//este lo debe sacar de la solicitud (puede ir hasta arriba)
-           
+            //var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             //la srting se puede hacer mas grande dependiendo de cuantos folders existan
             var key = $"usuarios/{userId}/{folderId}/{fileId}";
 
             // Usamos el stream directamente del IFormFile para no duplicar memoria
+            //
+            //NOTA: aqui va la espera de la BD
+            
             using var stream = file.OpenReadStream();
 
             var putObjectArgs = new PutObjectArgs()
@@ -93,10 +131,14 @@ namespace PDD_Archivos.Controllers
             //prueba para meter a la base de datos
             var nuevoArchivo = new MetadataArchivo
             {
+                FileId = fileId,
                 NombreOriginal = file.FileName,
-                TamanoBytes = 1024500,
+                IdUser = int.Parse(userId),
+                //TamanoBytes = 1024500,
                 FechaSubida = DateTime.UtcNow,
-                UbicacionStorage = "/uploads/2024/reporte.pdf"
+                //Categoria = "Computacion",
+                //Subcategoria = "C++",
+                //UbicacionStorage = "/uploads/2024/reporte.pdf"
             };
 
             try

@@ -1,4 +1,4 @@
-namespace ExtractorPdf.Modelos;
+namespace PDD_Archivos.Modelos;
 
 public class EventoArchivoEncolado
 {
