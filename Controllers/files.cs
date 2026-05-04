@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Win32;
 using Minio;
 using Minio.DataModel.Args;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using PDD_Archivos.Configuracion;
 using PDD_Archivos.Models;
@@ -49,9 +50,21 @@ namespace PDD_Archivos.Controllers
         //ahora si las peticiones del moy
 
         //subir archivos
+        /*
+         *Verificar si es Académico
+         *Proceso de Extracción
+         *Subida en la BD
+         *Encolado en RabbitMQ
+         *Espera a que clasifique (Monitorear MongoDB)
+         *Guardar en MinIO
+         *Enviar Mensaje
+         */
         [HttpPost("upload")]
         public async Task<IActionResult> UploadFile(IFormFile file, [FromQuery] string folderId = "root")
         {
+            //variables necesarias desde el inicio
+            var fileId = Guid.NewGuid().ToString();
+            var userId = "1";//este lo debe sacar de la solicitud
             var configuracion = new ConfiguracionRabbitMq
             {
                 Servidores = ["localhost"],
@@ -59,6 +72,8 @@ namespace PDD_Archivos.Controllers
                 Contrasena = "guest",
                 UsarColaQuorum = false,
             };
+            //guardarlo
+
             //primero comprobar si el texto es académico
             var validador = new ValidadorAcademico();
             var resultadoValidacion = validador.Validar(file.OpenReadStream());
@@ -70,10 +85,11 @@ namespace PDD_Archivos.Controllers
                 });
             }
             //Ahora se realiza la extracción
-            var fileId = Guid.NewGuid().ToString();
+            
             var servicioExtraccion = new ServicioExtraccionPdf();
             var evento = servicioExtraccion.Extraer(file.OpenReadStream(), fileId,file.Name);
 
+            /*
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine(" Extraccion completada");
@@ -84,8 +100,26 @@ namespace PDD_Archivos.Controllers
             Console.WriteLine($"  Palabras clave  : {evento.PalabrasClave.Count} encontradas");
             Console.WriteLine($"  Resumen         : {(string.IsNullOrEmpty(evento.Resumen) ? "no extraído" : evento.Resumen.Length + " caracteres")}");
             Console.ResetColor();
-
+            */
             //se encola y se genera el registro en la BD
+            var nuevoArchivo = new MetadataArchivo
+            {
+                id = fileId,
+                usuarioId = int.Parse(userId),
+                nombreOriginal = file.FileName,
+                fechaSubida = DateTime.UtcNow,
+                estado = Estado.Encolado
+            };
+
+            try
+            {
+                await _context.Archivos.InsertOneAsync(nuevoArchivo);
+            }
+            catch (MongoWriteException ex)
+            {
+                Console.WriteLine($"Error al escribir en Mongo: {ex.Message}");
+            }
+
             using var servicioMensajeria = new ServicioMensajeria(configuracion, Registrar);
             try
             {
@@ -104,9 +138,77 @@ namespace PDD_Archivos.Controllers
                 //Console.WriteLine($"  El json fue guardado en: {rutaSalida}");
                 Console.ResetColor();
             }
-            var userId = "1";//este lo debe sacar de la solicitud (puede ir hasta arriba)
-            //var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            //la srting se puede hacer mas grande dependiendo de cuantos folders existan
+            //esperar a que el archivo sea modificado en MongoDB
+            //
+            // 1. Cambiamos la promesa para que devuelva el objeto MetadataArchivo
+            var tcs = new TaskCompletionSource<MetadataArchivo>();
+
+            // 2. Mantenemos el pipeline filtrando por el fileId específico
+            var pipeline = new EmptyPipelineDefinition<ChangeStreamDocument<MetadataArchivo>>()
+            .Match(new BsonDocument {
+                { "operationType", "update" },
+                { "documentKey._id", fileId },
+                { "updateDescription.updatedFields.estado", new BsonDocument("$exists", true) }
+            });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60)); // Un minuto de margen
+
+            _ = Task.Run(async () => {
+                try
+                {
+                    using var cursor = await _context.Archivos.WatchAsync(pipeline,
+                        new ChangeStreamOptions { FullDocument = ChangeStreamFullDocumentOption.UpdateLookup },
+                        cts.Token);
+
+                    while (await cursor.MoveNextAsync(cts.Token))
+                    {
+                        foreach (var change in cursor.Current)
+                        {
+                            // Si el estado es el que esperamos, pasamos todo el documento al TCS
+                            if (change.FullDocument.estado == Estado.Procesado)
+                            {
+                                tcs.TrySetResult(change.FullDocument);
+                                return;
+                            }
+                            // Si el proceso falló, también cerramos para no esperar en vano
+                            else if (change.FullDocument.estado == Estado.Error)
+                            {
+                                tcs.TrySetException(new Exception("El procesamiento falló en el microservicio."));
+                                return;
+                            }
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    tcs.TrySetException(new TimeoutException("Tiempo de espera agotado para el procesamiento."));
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                }
+            });
+
+            // 3. Esperamos y capturamos el objeto completo
+            MetadataArchivo archivoProcesado;
+            try
+            {
+                archivoProcesado = await tcs.Task;
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { mensaje = ex.Message });
+            }
+
+            // 4. AHORA ya puedes usar archivoProcesado para construir la key
+            // Usamos el nombreArea de la clasificación recibida
+            //var area = archivoProcesado.clasificacion?.nombreArea ?? "SinArea";
+            //var key = $"usuarios/{userId}/{folderId}/{area}/{fileId}";
+
+            // ... continuar con la subida a MinIO
+            //si todo sale bien ya se guarda en MinIO (construir la key)
+
+
             var key = $"usuarios/{userId}/{folderId}/{fileId}";
 
             // Usamos el stream directamente del IFormFile para no duplicar memoria
@@ -129,32 +231,13 @@ namespace PDD_Archivos.Controllers
 
             await _minioClient.PutObjectAsync(putObjectArgs);
             //prueba para meter a la base de datos
-            var nuevoArchivo = new MetadataArchivo
-            {
-                FileId = fileId,
-                NombreOriginal = file.FileName,
-                IdUser = int.Parse(userId),
-                //TamanoBytes = 1024500,
-                FechaSubida = DateTime.UtcNow,
-                //Categoria = "Computacion",
-                //Subcategoria = "C++",
-                //UbicacionStorage = "/uploads/2024/reporte.pdf"
-            };
-
-            try
-            {
-                await _context.Archivos.InsertOneAsync(nuevoArchivo);
-            }
-            catch (MongoWriteException ex)
-            {
-                Console.WriteLine($"Error al escribir en Mongo: {ex.Message}");
-            }
+            
             
             return Ok(new
             {
                 FileId = fileId,
                 nombre = file.FileName,
-                estado = "PROCESANDO",
+                estado = "PROCESANDO",//Procesado
                 mensaje = "Archivo recibido correctamente",
                 S3Key = key
             });
