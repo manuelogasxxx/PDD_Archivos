@@ -7,6 +7,7 @@
       accedan al recurso de MinIO, en caso de que el servicio principal (el que usa local host)
       se caiga. En w11 se puede usar "Mirror" del WSL
     ->30/04/2026: Se empezó a agregar las cosas del Ulises
+    _>5/05/2026 : Se modificaron las peticiones al backend
  */
 using ExtractorPdf.Servicios;
 using Microsoft.AspNetCore.Http;
@@ -30,6 +31,7 @@ namespace PDD_Archivos.Controllers
         private readonly IMinioClient _minioClient;
         private readonly MongoContext _context;
         private readonly string _bucketName = "pdfs";
+        private readonly ConfiguracionRabbitMq config;
 
         void Registrar(string mensaje)
         {
@@ -41,7 +43,14 @@ namespace PDD_Archivos.Controllers
         public files (IMinioClient minioClient, MongoContext context)
         {
             this._minioClient = minioClient;
-            _context = context;
+            this._context = context;
+            this.config = new ConfiguracionRabbitMq
+            {
+                Servidores = ["localhost"],
+                Usuario = "guest",
+                Contrasena = "guest",
+                UsarColaQuorum = false,
+            };
         }
         //ver que onda con los dos constructores
 
@@ -64,15 +73,7 @@ namespace PDD_Archivos.Controllers
         {
             //variables necesarias desde el inicio
             var fileId = Guid.NewGuid().ToString();
-            var userId = "1";//este lo debe sacar de la solicitud
-            var configuracion = new ConfiguracionRabbitMq
-            {
-                Servidores = ["localhost"],
-                Usuario = "guest",
-                Contrasena = "guest",
-                UsarColaQuorum = false,
-            };
-            //guardarlo
+            var userId = "1";//este lo debe sacar de la solicitud del MOY
 
             //primero comprobar si el texto es académico
             var validador = new ValidadorAcademico();
@@ -84,24 +85,25 @@ namespace PDD_Archivos.Controllers
                     Error = resultadoValidacion.Razon
                 });
             }
+            //guardarlo ya en MinIO
+            using var stream = file.OpenReadStream();
+            var key = $"usuarios/{userId}/{folderId}/{fileId}";
+            var putObjectArgs = new PutObjectArgs()
+                .WithBucket(_bucketName)
+                .WithObject(key)
+                .WithStreamData(stream)
+                .WithObjectSize(file.Length)
+                .WithContentType(file.ContentType)
+                // Metadatos personalizados
+                .WithHeaders(new Dictionary<string, string> {
+                    { "x-amz-meta-original-name", file.FileName },
+                    { "x-amz-meta-user-id", userId }
+                });
+
+            await _minioClient.PutObjectAsync(putObjectArgs);
             //Ahora se realiza la extracción
-            
             var servicioExtraccion = new ServicioExtraccionPdf();
             var evento = servicioExtraccion.Extraer(file.OpenReadStream(), fileId,file.Name);
-
-            /*
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine(" Extraccion completada");
-            Console.ResetColor();
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"  Estado          : {evento.EstadoExtraccion}");
-            Console.WriteLine($"  Idioma          : {evento.Idioma}");
-            Console.WriteLine($"  Palabras clave  : {evento.PalabrasClave.Count} encontradas");
-            Console.WriteLine($"  Resumen         : {(string.IsNullOrEmpty(evento.Resumen) ? "no extraído" : evento.Resumen.Length + " caracteres")}");
-            Console.ResetColor();
-            */
-            //se encola y se genera el registro en la BD
             var nuevoArchivo = new MetadataArchivo
             {
                 id = fileId,
@@ -120,7 +122,7 @@ namespace PDD_Archivos.Controllers
                 Console.WriteLine($"Error al escribir en Mongo: {ex.Message}");
             }
 
-            using var servicioMensajeria = new ServicioMensajeria(configuracion, Registrar);
+            using var servicioMensajeria = new ServicioMensajeria(config, Registrar);
             try
             {
                 //crear registro en la BD
@@ -200,39 +202,7 @@ namespace PDD_Archivos.Controllers
                 return StatusCode(500, new { mensaje = ex.Message });
             }
 
-            // 4. AHORA ya puedes usar archivoProcesado para construir la key
-            // Usamos el nombreArea de la clasificación recibida
-            //var area = archivoProcesado.clasificacion?.nombreArea ?? "SinArea";
-            //var key = $"usuarios/{userId}/{folderId}/{area}/{fileId}";
 
-            // ... continuar con la subida a MinIO
-            //si todo sale bien ya se guarda en MinIO (construir la key)
-
-
-            var key = $"usuarios/{userId}/{folderId}/{fileId}";
-
-            // Usamos el stream directamente del IFormFile para no duplicar memoria
-            //
-            //NOTA: aqui va la espera de la BD
-            
-            using var stream = file.OpenReadStream();
-
-            var putObjectArgs = new PutObjectArgs()
-                .WithBucket(_bucketName)
-                .WithObject(key)
-                .WithStreamData(stream)
-                .WithObjectSize(file.Length)
-                .WithContentType(file.ContentType)
-                // Metadatos personalizados
-                .WithHeaders(new Dictionary<string, string> {
-                    { "x-amz-meta-original-name", file.FileName },
-                    { "x-amz-meta-user-id", userId }
-                });
-
-            await _minioClient.PutObjectAsync(putObjectArgs);
-            //prueba para meter a la base de datos
-            
-            
             return Ok(new
             {
                 FileId = fileId,
@@ -247,7 +217,7 @@ namespace PDD_Archivos.Controllers
         [HttpGet("download/{fileId}")]
         public async Task<IActionResult> GetDownloadUrl(string fileId, [FromQuery] string folderId = "root")
         {
-            var userId = "1";
+            var userId = "1"; //se extrae del JWT
             var key = $"usuarios/{userId}/{folderId}/{fileId}";
 
             var args = new PresignedGetObjectArgs()
@@ -262,7 +232,7 @@ namespace PDD_Archivos.Controllers
         [HttpDelete("{fileId}")]
         public async Task<IActionResult> DeleteFile(string fileId, [FromQuery] string folderId = "root")
         {
-            var userId = "1";
+            var userId = "1";//se saca del JWT
             var key = $"usuarios/{userId}/{folderId}/{fileId}";
 
             var args = new RemoveObjectArgs()
@@ -270,10 +240,25 @@ namespace PDD_Archivos.Controllers
                 .WithObject(key);
 
             await _minioClient.RemoveObjectAsync(args);
+            var filter = Builders<MetadataArchivo>.Filter.And(
+                Builders<MetadataArchivo>.Filter.Eq(a => a.id, fileId),
+                Builders<MetadataArchivo>.Filter.Eq(a => a.usuarioId, int.Parse(userId))
+            );
 
-            return NoContent();
+            // 3. Ejecutar la eliminación
+            var resultado = await _context.Archivos.DeleteOneAsync(filter);
+
+            if (resultado.DeletedCount == 0)
+            {
+                return NotFound("No se encontró el archivo o no tienes permisos para eliminarlo.");
+            }
+
+            return Ok(new { mensaje = "Registro eliminado correctamente" });
+
+            //return NoContent();
         }
 
+        //teoricamente ya no se usarían
         [HttpPost("folder")]
         public async Task<IActionResult> CreateFolder([FromQuery] string folderName, [FromQuery] string parentFolderId = "root")
         {
@@ -300,11 +285,16 @@ namespace PDD_Archivos.Controllers
             });
         }
 
-        [HttpGet]
+        
+        [HttpGet("listar/")]
+
         public async Task<IActionResult> Listar()
         {
-            // Usamos la colección directamente
-            var lista = await _context.Archivos.Find(_ => true).ToListAsync();
+            var userId = 1; //sacarlo del JWT
+            var lista = await _context.Archivos
+                .Find(a => a.usuarioId == userId)
+                .ToListAsync();
+
             return Ok(lista);
         }
     }
