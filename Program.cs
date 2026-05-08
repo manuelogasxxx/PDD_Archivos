@@ -11,6 +11,15 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
         listenOptions.UseHttps(); // Esto habilita el soporte SSL/TLS
     });
 });
+/*
+ Aquí se debe añadir el servicio para el que acepte JWT
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options => {
+        // ... configuración de validación (issuer, audience, key)
+    });
+
+builder.Services.AddAuthorization();
+ */
 // Add services to the container.
 builder.Services.AddSingleton<MongoContext>(); //para que siempre este disponible
 

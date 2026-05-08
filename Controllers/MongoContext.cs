@@ -22,5 +22,12 @@ namespace PDD_Archivos.Controllers
         public IMongoCollection<MetadataArchivo> Archivos =>
         _database.GetCollection<MetadataArchivo>("Metadata");
 
+        //nueva colección para el catálogo general
+        public IMongoCollection<CatalogoAreas> Catalogos =>
+        _database.GetCollection<CatalogoAreas>("Catalogos");
+
+        //nueva colección para usuario-areaInteres
+        public IMongoCollection<UsuarioPreferencia> PreferenciasUsuarios =>
+        _database.GetCollection<UsuarioPreferencia>("PreferenciasUsuarios");
     }
 }
