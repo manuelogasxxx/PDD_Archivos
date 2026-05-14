@@ -34,8 +34,10 @@ builder.Services.AddSwaggerGen();
 //se debe de cambiar por la IP de la pcerda en la red o sino para localhost
 //string endpoint = "localhost:9000";
 string endpoint = "localhost:9000";
-string accessKey = "manuelongasxxx";
-string secretKey = "123456789";
+//string accessKey = "manuelongasxxx";
+//string secretKey = "123456789";
+string accessKey = "R5CJVLB6RN0VYHKDDQNO";
+string secretKey = "pnGR2I7flEJT7v8bUhynke3v9X1lKsHG8MqloS1I";
 builder.Services.AddMinio(ConfigureClient => ConfigureClient
     .WithEndpoint(endpoint)
     .WithCredentials(accessKey, secretKey)

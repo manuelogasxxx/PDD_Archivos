@@ -26,7 +26,7 @@ using static System.Net.WebRequestMethods;
 namespace PDD_Archivos.Controllers
 {
     //Se coloca [Authorize]
-    [Route("api/[controller]")]
+    [Route("api/v1/[controller]")]
     [ApiController]
     public class files : ControllerBase
     {
@@ -70,7 +70,7 @@ namespace PDD_Archivos.Controllers
          *Guardar en MinIO
          *Enviar Mensaje
          */
-        [HttpPost("upload")]
+        /*[HttpPost("upload")]
         public async Task<IActionResult> UploadFile(IFormFile file, [FromQuery] string folderId = "root")
         {
             //variables necesarias desde el inicio
@@ -214,10 +214,10 @@ namespace PDD_Archivos.Controllers
                 mensaje = "Archivo recibido correctamente",
                 S3Key = key
             });
-        }
+        }*/
 
         //descargar archivos (url con tiempo límite)
-        [HttpGet("download/{fileId}")]
+        /*[HttpGet("download/{fileId}")]
         public async Task<IActionResult> GetDownloadUrl(string fileId, [FromQuery] string folderId = "root")
         {
             var userId = "1"; //se extrae del JWT
@@ -230,10 +230,10 @@ namespace PDD_Archivos.Controllers
 
             string url = await _minioClient.PresignedGetObjectAsync(args);
             return Ok(new { DownloadUrl = url });
-        }
+        }*/
 
         
-
+        /*
         //teoricamente ya no se usarían
         [HttpPost("folder")]
         public async Task<IActionResult> CreateFolder([FromQuery] string folderName, [FromQuery] string parentFolderId = "root")
@@ -272,7 +272,7 @@ namespace PDD_Archivos.Controllers
                 .ToListAsync();
 
             return Ok(lista);
-        }
+        }*/
 
         [HttpPost("inicializar-catalogo")]
         public async Task<IActionResult> Inicializar([FromBody] CatalogoAreas nuevoCatalogo)
@@ -357,7 +357,7 @@ namespace PDD_Archivos.Controllers
         //RF-04 (Esa que se la saque el Ulises jaja)
 
         //RF-05
-        [HttpPost("/upload")]
+        [HttpPost("upload")]
         public async Task<IActionResult> UploadFile1(IFormFile file, [FromQuery] string folderId = "root")
         {
             //variables necesarias desde el inicio
@@ -446,7 +446,7 @@ namespace PDD_Archivos.Controllers
 
 
         //RF-06
-        [HttpGet("/{fileId}/status")]
+        [HttpGet("{fileId}/status")]
         public async Task<IActionResult> Status1(string fileId)
         {
             //sacarlo del JWT
@@ -536,6 +536,11 @@ namespace PDD_Archivos.Controllers
 
             //return NoContent();
         }
+
+
+        //Estas son las madres del "ADMIN"
+
+
 
     }
 }
