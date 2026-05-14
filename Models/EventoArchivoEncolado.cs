@@ -2,6 +2,9 @@ namespace PDD_Archivos.Modelos;
 
 public class EventoArchivoEncolado
 {
+    // ID del usuario que subió el archivo
+    public string UsuarioId { get; set; } = string.Empty;
+
     // Id único del archivo generado al momento de subirlo.
     public string IdArchivo { get; set; } = string.Empty;
 

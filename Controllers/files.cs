@@ -106,6 +106,7 @@ namespace PDD_Archivos.Controllers
             //Ahora se realiza la extracción
             var servicioExtraccion = new ServicioExtraccionPdf();
             var evento = servicioExtraccion.Extraer(file.OpenReadStream(), fileId,file.Name);
+            evento.UsuarioId = userId;
             var nuevoArchivo = new MetadataArchivo
             {
                 id = fileId,

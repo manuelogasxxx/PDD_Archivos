@@ -33,9 +33,9 @@ builder.Services.AddSwaggerGen();
 //para la conexión minIO (despues es ponerlos en un JSON)
 //se debe de cambiar por la IP de la pcerda en la red o sino para localhost
 //string endpoint = "localhost:9000";
-string endpoint = "192.168.100.188:9000";
-string accessKey = "R5CJVLB6RN0VYHKDDQNO";
-string secretKey = "pnGR2I7flEJT7v8bUhynke3v9X1lKsHG8MqloS1I";
+string endpoint = "localhost:9000";
+string accessKey = "manuelongasxxx";
+string secretKey = "123456789";
 builder.Services.AddMinio(ConfigureClient => ConfigureClient
     .WithEndpoint(endpoint)
     .WithCredentials(accessKey, secretKey)
