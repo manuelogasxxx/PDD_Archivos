@@ -48,9 +48,10 @@ namespace PDD_Archivos.Controllers
             this._context = context;
             this.config = new ConfiguracionRabbitMq
             {
-                Servidores = ["localhost"],
-                Usuario = "guest",
-                Contrasena = "guest",
+				//Servidores = ["localhost"],
+				Servidores = ["172.26.160.140"],
+				Usuario = "admin",
+                Contrasena = "admin123",
                 UsarColaQuorum = false,
             };
         }
@@ -398,6 +399,7 @@ namespace PDD_Archivos.Controllers
             //Ahora se realiza la extracción
             var servicioExtraccion = new ServicioExtraccionPdf();
             var evento = servicioExtraccion.Extraer(file.OpenReadStream(), fileId, file.Name);
+            evento.UsuarioId = usuarioId;
             var nuevoArchivo = new MetadataArchivo
             {
                 id = fileId,

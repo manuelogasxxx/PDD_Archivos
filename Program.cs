@@ -1,8 +1,12 @@
 using Minio;
 using PDD_Archivos.Controllers;
+using Steeltoe.Discovery.Eureka;
+using Steeltoe.Discovery.Eureka.AppInfo;
+
 
 var builder = WebApplication.CreateBuilder(args);
 //esto se le agregó para que se reconozca en LAN
+
 
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
@@ -11,6 +15,8 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
         listenOptions.UseHttps(); // Esto habilita el soporte SSL/TLS
     });
 });
+
+
 /*
  Aquí se debe añadir el servicio para el que acepte JWT
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -27,6 +33,9 @@ builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+
+//para el eureka
+builder.Services.AddEurekaDiscoveryClient();
 //Se agregó para la parte de Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -34,10 +43,10 @@ builder.Services.AddSwaggerGen();
 //se debe de cambiar por la IP de la pcerda en la red o sino para localhost
 //string endpoint = "localhost:9000";
 string endpoint = "localhost:9000";
-//string accessKey = "manuelongasxxx";
-//string secretKey = "123456789";
-string accessKey = "R5CJVLB6RN0VYHKDDQNO";
-string secretKey = "pnGR2I7flEJT7v8bUhynke3v9X1lKsHG8MqloS1I";
+string accessKey = "manuelongasxxx";
+string secretKey = "123456789";
+//string accessKey = "R5CJVLB6RN0VYHKDDQNO";
+//string secretKey = "pnGR2I7flEJT7v8bUhynke3v9X1lKsHG8MqloS1I";
 builder.Services.AddMinio(ConfigureClient => ConfigureClient
     .WithEndpoint(endpoint)
     .WithCredentials(accessKey, secretKey)

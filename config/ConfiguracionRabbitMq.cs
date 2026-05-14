@@ -3,19 +3,21 @@ namespace PDD_Archivos.Configuracion;
 
 public class ConfiguracionRabbitMq
 {
-    public List<string> Servidores { get; set; } = ["localhost"];
+	//public List<string> Servidores { get; set; } = ["localhost"];
+	public List<string> Servidores { get; set; } = ["172.26.160.140"];
+	//Puerto AMQP
+	public int Puerto { get; set; } = 5672;
 
-    //Puerto AMQP
-    public int Puerto { get; set; } = 5672;
+	//Usuario 
+	//public string Usuario { get; set; } = "guest";
+	public string Usuario { get; set; } = "admin";
 
-    //Usuario 
-    public string Usuario { get; set; } = "guest";
+	//Contraseña
+	//public string Contrasena { get; set; } = "guest";
+	public string Contrasena { get; set; } = "admin123";
 
-    //Contraseña
-    public string Contrasena { get; set; } = "guest";
-
-    //Virtual host / host por defecto
-    public string HostVirtual { get; set; } = "/";
+	//Virtual host / host por defecto
+	public string HostVirtual { get; set; } = "/";
 
     
     // recibe el mensaje y lo dirige a la cola correcta según la clave de enrutamiento.

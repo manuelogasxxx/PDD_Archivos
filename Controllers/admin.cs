@@ -31,8 +31,9 @@ namespace PDD_Archivos.Controllers
             this._context = context;
             this.config = new ConfiguracionRabbitMq
             {
-                Servidores = ["localhost"],
-                Usuario = "guest",
+				//Servidores = ["localhost"],
+				Servidores = ["172.26.160.140"],
+				Usuario = "guest",
                 Contrasena = "guest",
                 UsarColaQuorum = false,
             };
