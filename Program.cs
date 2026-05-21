@@ -10,14 +10,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    serverOptions.ListenAnyIP(7116, listenOptions =>
+	serverOptions.ListenAnyIP(5245);
+	/*serverOptions.ListenAnyIP(7116, listenOptions =>
     {
         listenOptions.UseHttps(); // Esto habilita el soporte SSL/TLS
-    });
+    });*/
+    
 });
 
 
 /*
+ * secretKey:esta_es_una_clave_secreta_muy_larga_para_el_proyecto_de_sistemas_distribuidos_buap
  Aquí se debe añadir el servicio para el que acepte JWT
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options => {

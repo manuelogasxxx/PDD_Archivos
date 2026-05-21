@@ -302,14 +302,16 @@ namespace PDD_Archivos.Controllers
         }
 
 
-        //RF-02
+        //RF-02 //se va a agregar un id
         [HttpPost("themes/me")]
         public async Task<IActionResult> GuardarMiPreferencia([FromBody] List<AreaInteres> seleccion)
         {
             // 1. Extraer el ID del usuario desde los Claims del JWT
             // "NameIdentifier" es el estándar para el ID del usuario (ClaimTypes.NameIdentifier)
             //var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var usuarioId = "1";
+            //var usuarioId = "1";
+            // X-User-Id X-User-Role
+            string usuarioId = Request.Headers["X-User-Id"];
             if (string.IsNullOrEmpty(usuarioId))
             {
                 return Unauthorized("No se pudo identificar al usuario en el token.");
@@ -339,11 +341,12 @@ namespace PDD_Archivos.Controllers
 
         //RF-03
         [HttpGet("themes/me")]
-        public async Task<IActionResult> VerMisPreferencias([FromBody] List<AreaInteres> seleccion)
+        public async Task<IActionResult> VerMisPreferencias()
         {
-            //var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var usuarioId = "1";
-            if (string.IsNullOrEmpty(usuarioId))
+			//var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+			//var usuarioId = "1";
+			string usuarioId = Request.Headers["X-User-Id"];
+			if (string.IsNullOrEmpty(usuarioId))
             {
                 return Unauthorized("No se pudo identificar al usuario en el token.");
             }
@@ -363,8 +366,9 @@ namespace PDD_Archivos.Controllers
         {
             //variables necesarias desde el inicio
             var fileId = Guid.NewGuid().ToString();
-            var usuarioId = "1";//este lo debe sacar de la solicitud del MOY
-            if (string.IsNullOrEmpty(usuarioId))
+			//var usuarioId = "1";//este lo debe sacar de la solicitud del MOY
+			string usuarioId = Request.Headers["X-User-Id"];
+			if (string.IsNullOrEmpty(usuarioId))
             {
                 return Unauthorized("No se pudo identificar al usuario en el token.");
             }
@@ -451,9 +455,10 @@ namespace PDD_Archivos.Controllers
         [HttpGet("{fileId}/status")]
         public async Task<IActionResult> Status1(string fileId)
         {
-            //sacarlo del JWT
-            var usuarioId = "1";
-            if (string.IsNullOrEmpty(usuarioId))
+			//sacarlo del JWT
+			//var usuarioId = "1";
+			string usuarioId = Request.Headers["X-User-Id"];
+			if (string.IsNullOrEmpty(usuarioId))
             {
                 return Unauthorized("No se pudo identificar al usuario en el token.");
             }
@@ -488,8 +493,9 @@ namespace PDD_Archivos.Controllers
         [HttpGet("{fileId}/download")]
         public async Task<IActionResult> GetDownloadUrl1(string fileId, [FromQuery] string folderId = "root")
         {
-            var usuarioId = "1"; //se extrae del JWT
-            var key = $"usuarios/{usuarioId}/{folderId}/{fileId}";
+			//var usuarioId = "1"; //se extrae del JWT
+			string usuarioId = Request.Headers["X-User-Id"];
+			var key = $"usuarios/{usuarioId}/{folderId}/{fileId}";
             if (string.IsNullOrEmpty(usuarioId))
             {
                 return Unauthorized("No se pudo identificar al usuario en el token.");
@@ -509,8 +515,9 @@ namespace PDD_Archivos.Controllers
         [HttpDelete("{fileId}")]
         public async Task<IActionResult> DeleteFile1(string fileId, [FromQuery] string folderId = "root")
         {
-            var usuarioId = "1";//se saca del JWT
-            if (string.IsNullOrEmpty(usuarioId))
+			//var usuarioId = "1";//se saca del JWT
+			string usuarioId = Request.Headers["X-User-Id"];
+			if (string.IsNullOrEmpty(usuarioId))
             {
                 return Unauthorized("No se pudo identificar al usuario en el token.");
             }
