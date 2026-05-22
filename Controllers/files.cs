@@ -30,34 +30,94 @@ namespace PDD_Archivos.Controllers
     [ApiController]
     public class files : ControllerBase
     {
-        private readonly IMinioClient _minioClient;
+        // 1. TUS VARIABLES GLOBALES
         private readonly MongoContext _context;
         private readonly string _bucketName = "pdfs";
         private readonly ConfiguracionRabbitMq config;
 
+        // ---------------------------------------------------------
+        // 2. AQUÍ VA EL PASO 3 (Las IPs del clúster de MinIO)
+        private readonly string[] _nodosMinio = {
+            "172.26.160.140:9000",
+            "172.26.160.150:9000",
+            "172.26.160.160:9000",
+            "172.26.160.161:9000" // La 4ta computadora
+        };
+
+        private IMinioClient CrearClienteMinio(string endpoint)
+        {
+            return new MinioClient()
+                .WithEndpoint(endpoint)
+                .WithCredentials("admin", "admin123456")
+                .Build();
+        }
+        // ---------------------------------------------------------
+
+        // 3. TU MÉTODO REGISTRAR
         void Registrar(string mensaje)
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine(mensaje);
             Console.ResetColor();
         }
-        //el constructor
-        public files (IMinioClient minioClient, MongoContext context)
+
+        // 4. TU CONSTRUCTOR (Ya corregido, sin IMinioClient)
+        public files(MongoContext context)
         {
-            this._minioClient = minioClient;
             this._context = context;
             this.config = new ConfiguracionRabbitMq
             {
-				//Servidores = ["localhost"],
-				Servidores = ["172.26.160.140"],
-				Usuario = "admin",
+                // Agregamos las IPs del clúster de RabbitMQ también
+                Servidores = ["172.26.160.140", "172.26.160.150", "172.26.160.160", "172.26.160.161"],
+                Usuario = "admin",
                 Contrasena = "admin123",
                 UsarColaQuorum = false,
             };
         }
+
+        
+
+        //configuracion con solo un minIO
+        /*
+        //Se coloca [Authorize]
+        [Route("api/v1/[controller]")]
+        [ApiController]
+        public class files : ControllerBase
+        {
+            //private readonly IMinioClient _minioClient;
+            //Se comenta por que ya no se usa desde program.cs
+            private readonly MongoContext _context;
+            private readonly string _bucketName = "pdfs";
+            private readonly ConfiguracionRabbitMq config;
+
+
+            void Registrar(string mensaje)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine(mensaje);
+                Console.ResetColor();
+            }
+            //el constructor
+            public files (IMinioClient minioClient, MongoContext context)
+            {
+                this._minioClient = minioClient;
+                this._context = context;
+                this.config = new ConfiguracionRabbitMq
+                {
+                    //Servidores = ["localhost"],
+                    Servidores = ["172.26.160.140"],
+                    Usuario = "admin",
+                    Contrasena = "admin123",
+                    UsarColaQuorum = false,
+                };
+            }
+
+        */
+
+
         //ver que onda con los dos constructores
 
-       
+
 
         //ahora si las peticiones del moy
 
@@ -233,7 +293,7 @@ namespace PDD_Archivos.Controllers
             return Ok(new { DownloadUrl = url });
         }*/
 
-        
+
         /*
         //teoricamente ya no se usarían
         [HttpPost("folder")]
