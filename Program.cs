@@ -45,6 +45,9 @@ builder.Services.AddSwaggerGen();
 //para la conexión minIO (despues es ponerlos en un JSON)
 //se debe de cambiar por la IP de la pcerda en la red o sino para localhost
 //string endpoint = "localhost:9000";
+
+//Se comenta para hacer uso de minIO Distribuido con las ips de las computadoras en la red
+/*
 string endpoint = "localhost:9000";
 string accessKey = "manuelongasxxx";
 string secretKey = "123456789";
@@ -56,6 +59,8 @@ builder.Services.AddMinio(ConfigureClient => ConfigureClient
     .WithSSL(false)
     .Build()
     );
+*/
+
 //ojo si los archivos pesarán mas de 30MB (se tiene que agregar otra configuracion)
 var app = builder.Build();
 

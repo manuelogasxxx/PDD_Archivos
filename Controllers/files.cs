@@ -25,18 +25,19 @@ using static System.Net.WebRequestMethods;
 
 namespace PDD_Archivos.Controllers
 {
+    //Config para que funcione con varios minIO Distribuidos
     //Se coloca [Authorize]
     [Route("api/v1/[controller]")]
     [ApiController]
     public class files : ControllerBase
     {
-        // 1. TUS VARIABLES GLOBALES
+        // variables globales
         private readonly MongoContext _context;
         private readonly string _bucketName = "pdfs";
         private readonly ConfiguracionRabbitMq config;
 
-        // ---------------------------------------------------------
-        // 2. AQUÍ VA EL PASO 3 (Las IPs del clúster de MinIO)
+
+        // ips que corresponden a cada computadora del clúster de minIO (se pueden sacar de un JSON después)
         private readonly string[] _nodosMinio = {
             "172.26.160.140:9000",
             "172.26.160.150:9000",
@@ -49,11 +50,12 @@ namespace PDD_Archivos.Controllers
             return new MinioClient()
                 .WithEndpoint(endpoint)
                 .WithCredentials("admin", "admin123456")
+                .WithSSL(false)
                 .Build();
         }
-        // ---------------------------------------------------------
+        
 
-        // 3. TU MÉTODO REGISTRAR
+        //metodo para registrar
         void Registrar(string mensaje)
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -61,14 +63,14 @@ namespace PDD_Archivos.Controllers
             Console.ResetColor();
         }
 
-        // 4. TU CONSTRUCTOR (Ya corregido, sin IMinioClient)
+        // constructor corregido para no usar el cliente de minIO directamente, sino crear uno dinámico dentro de cada método
         public files(MongoContext context)
         {
             this._context = context;
             this.config = new ConfiguracionRabbitMq
             {
-                // Agregamos las IPs del clúster de RabbitMQ también
-                Servidores = ["172.26.160.140", "172.26.160.150", "172.26.160.160", "172.26.160.161"],
+                //Servidores = ["localhost"],
+                Servidores = ["172.26.160.140"],
                 Usuario = "admin",
                 Contrasena = "admin123",
                 UsarColaQuorum = false,
@@ -459,7 +461,38 @@ namespace PDD_Archivos.Controllers
                     { "x-amz-meta-user-id", usuarioId }
                 });
 
-            await _minioClient.PutObjectAsync(putObjectArgs);
+            //await _minioClient.PutObjectAsync(putObjectArgs); //linea para usar solo un minIO
+
+            //manejo con multiples minIO
+            // --- NUEVO: Ciclo de alta disponibilidad para MinIO ---
+            bool archivoSubido = false;
+
+            foreach (var ipNodo in _nodosMinio)
+            {
+                try
+                {
+                    // Intentamos conectarnos a la IP en turno
+                    var minioDinamico = CrearClienteMinio(ipNodo);
+                    await minioDinamico.PutObjectAsync(putObjectArgs);
+
+                    // Si llega a esta línea, la subida fue un éxito, rompemos el ciclo
+                    archivoSubido = true;
+                    break;
+                }
+                catch (Exception)
+                {
+                    // Si falla (la PC está apagada o sin internet), el ciclo ignora el error
+                    // y pasa automáticamente a la siguiente IP de la lista.
+                    Registrar($"Fallo al subir en {ipNodo}. Intentando con el siguiente nodo...");
+                }
+            }
+
+            if (!archivoSubido)
+            {
+                // Si el ciclo termina y no pudo subirlo a NINGUNA de las 3 computadoras:
+                return StatusCode(500, new { Error = "Fallo crítico: Todo el clúster de MinIO está caído." });
+            }
+            // ------------------------------------------------------
             //Ahora se realiza la extracción
             var servicioExtraccion = new ServicioExtraccionPdf();
             var evento = servicioExtraccion.Extraer(file.OpenReadStream(), fileId, file.Name);
@@ -566,8 +599,38 @@ namespace PDD_Archivos.Controllers
                 .WithObject(key)
                 .WithExpiry(60 * 15); // 15 minutos en segundos
 
-            string url = await _minioClient.PresignedGetObjectAsync(args);
-            return Ok(new { DownloadUrl = url });
+            //uso para solo un minIO
+            //string url = await _minioClient.PresignedGetObjectAsync(args);
+            //return Ok(new { DownloadUrl = url });
+
+            //manejo con multiples minIO
+            // --- NUEVO: Ciclo de alta disponibilidad para DESCARGAR ---
+            string urlDescarga = string.Empty;
+            bool urlGenerada = false;
+
+            foreach (var ipNodo in _nodosMinio)
+            {
+                try
+                {
+                    var minioDinamico = CrearClienteMinio(ipNodo);
+                    urlDescarga = await minioDinamico.PresignedGetObjectAsync(args);
+                    
+                    urlGenerada = true;
+                    break; // ¡Exito! Rompemos el ciclo
+                }
+                catch (Exception)
+                {
+                    Registrar($"Fallo al generar URL en {ipNodo}. Intentando con el siguiente nodo...");
+                }
+            }
+
+            if (!urlGenerada)
+            {
+                return StatusCode(500, new { Error = "Fallo crítico: No se pudo contactar al clúster para descargar el archivo." });
+            }
+
+            return Ok(new { DownloadUrl = urlDescarga });
+            
         }
 
 
@@ -587,7 +650,35 @@ namespace PDD_Archivos.Controllers
                 .WithBucket(_bucketName)
                 .WithObject(key);
 
-            await _minioClient.RemoveObjectAsync(args);
+            //uso para solo un minIO
+            //await _minioClient.RemoveObjectAsync(args);
+
+            //manejo con multiples minIO
+            // --- NUEVO: Ciclo de alta disponibilidad para ELIMINAR ---
+            bool archivoEliminado = false;
+
+            foreach (var ipNodo in _nodosMinio)
+            {
+                try
+                {
+                    var minioDinamico = CrearClienteMinio(ipNodo);
+                    await minioDinamico.RemoveObjectAsync(args);
+
+                    archivoEliminado = true;
+                    break; // ¡Eliminación exitosa, salimos del ciclo!
+                }
+                catch (Exception)
+                {
+                    Registrar($"Fallo al intentar eliminar en {ipNodo}. Intentando con el siguiente nodo...");
+                }
+            }
+
+            if (!archivoEliminado)
+            {
+                return StatusCode(500, new { Error = "Fallo crítico: No se pudo contactar al clúster de MinIO para eliminar el archivo." });
+            }
+            
+
             var filter = Builders<MetadataArchivo>.Filter.And(
                 Builders<MetadataArchivo>.Filter.Eq(a => a.id, fileId),
                 Builders<MetadataArchivo>.Filter.Eq(a => a.usuarioId, int.Parse(usuarioId))

@@ -14,3 +14,13 @@ https://github.com/manuelogasxxx/PDA_Files
 
 1. No tiene los contratos de errores y hace falta envolver en try-catch las conexiones a MinIO, MongoDB y RabbitMQ
 2. NO tiene configuraciones en caso de que el servicio completo se cae para poder reemplazarlo con otro 
+
+
+
+# MinIO 
+
+Descargar la imagen de MinIO con docker pull minio/minio:latest
+Se debe limpiar el bucket del MinIo que se haya corrido en alguna computadora usando los siguientes comandos en la carpeta donde este el .yml del minio:
+```bash
+docker compose down -v
+docker volume prune -f
